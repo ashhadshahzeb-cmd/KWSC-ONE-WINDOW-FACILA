@@ -1096,14 +1096,14 @@ export default function FileTracking() {
   const { mainCategories: dynMainCats, subCategories: dynSubCats, sections: dynSections, contractorAccounts, isFileEditPasswordEnabled } = useAppConfig();
 
   // Legacy format for backward compatibility
-  const categoryOptions: Record<string, string[]> = dynMainCats.reduce((acc, mc) => {
-    acc[mc.config_key] = getSubCategoriesFor(dynSubCats, mc.config_key).map(sc => sc.config_label);
+  const categoryOptions: Record<string, string[]> = (dynMainCats || []).reduce((acc, mc) => {
+    acc[mc.config_key] = (getSubCategoriesFor(dynSubCats || [], mc.config_key) || []).map(sc => sc.config_label);
     return acc;
   }, {} as Record<string, string[]>);
 
   // Sub-cat key lookup: label → key (needed for form saving)
   const subCatLabelToKey = (label: string, parentKey: string): string => {
-    const found = dynSubCats.find(sc => sc.parent_key === parentKey && sc.config_label === label);
+    const found = (dynSubCats || []).find(sc => sc.parent_key === parentKey && sc.config_label === label);
     return found ? found.config_key : label.toLowerCase().replace(/ /g, '_');
   };
   const handleFormReset = () => {
@@ -2908,12 +2908,12 @@ export default function FileTracking() {
     setActiveTab("register");
   };
 
-  const allMatchingIds = allMatchingRecords.map(f => f.id);
+  const allMatchingIds = (allMatchingRecords || []).map(f => f.id);
   const isAllSelected = allMatchingIds.length > 0 && allMatchingIds.every(id => selectedRecordIds.includes(id));
   const isSomeSelected = allMatchingIds.length > 0 && !isAllSelected && allMatchingIds.some(id => selectedRecordIds.includes(id));
   
-  const totalAmountMatching = allMatchingRecords.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
-  const selectedAmount = allMatchingRecords
+  const totalAmountMatching = (allMatchingRecords || []).reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  const selectedAmount = (allMatchingRecords || [])
     .filter(r => selectedRecordIds.includes(r.id))
     .reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
 
@@ -3280,10 +3280,10 @@ export default function FileTracking() {
                     : 'All Sub-Categories'
                   }
                 </SelectItem>
-                {(filterCategory === 'all'
-                  ? dynSubCats
-                  : dynSubCats.filter(sc => sc.parent_key === filterCategory)
-                ).map(sc => (
+                {((filterCategory === 'all'
+                  ? (dynSubCats || [])
+                  : (dynSubCats || []).filter(sc => sc.parent_key === filterCategory)
+                ) || []).map(sc => (
                   <SelectItem key={sc.config_key} value={sc.config_key}>{sc.config_label}</SelectItem>
                 ))}
               </SelectContent>
@@ -3852,7 +3852,7 @@ export default function FileTracking() {
                         record={selectedBill} 
                       />
 
-                      {selectedBill.history?.map((step: any, index: number) => (
+                      {Array.isArray(selectedBill.history) && selectedBill.history.map((step: any, index: number) => (
                         <div key={index} className="relative flex items-center gap-4">
                           <div className="flex items-center justify-center w-8 h-8 rounded-full border border-primary/50 bg-background text-primary shadow shrink-0 z-10">
                             {index === selectedBill.history.length - 1 ? <MapPin className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -4322,7 +4322,7 @@ export default function FileTracking() {
                           </div>
 
                           <div className="space-y-0 relative border-l-2 border-primary/20 ml-3">
-                            {file.history?.map((step: any, idx: number) => (
+                            {Array.isArray(file.history) && file.history.map((step: any, idx: number) => (
                               <div key={idx} className="relative pb-6 pl-6 last:pb-0">
                                 <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
                                   <div className="w-2 h-2 bg-white rounded-full"></div>
@@ -4770,7 +4770,7 @@ export default function FileTracking() {
                           record={selectedBill} 
                         />
 
-                        {selectedBill.history?.map((step: any, index: number) => (
+                        {Array.isArray(selectedBill.history) && selectedBill.history.map((step: any, index: number) => (
                           <div key={index} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
                             <div className="flex items-center justify-center w-8 h-8 rounded-full border border-primary/50 bg-background text-primary shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 group-hover:bg-primary group-hover:text-white transition-colors duration-200">
                               {index === selectedBill.history.length - 1 ? <MapPin className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -5070,7 +5070,7 @@ export default function FileTracking() {
                       <SelectValue placeholder={formData.mainCategory ? "Select Sub Category" : "Select Main Category First"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {formData.mainCategory && getSubCategoriesFor(dynSubCats, formData.mainCategory).map(sc => (
+                      {formData.mainCategory && (getSubCategoriesFor(dynSubCats || [], formData.mainCategory) || []).map(sc => (
                         <SelectItem key={sc.config_key} value={sc.config_key}>{sc.config_label}</SelectItem>
                       ))}
                     </SelectContent>
@@ -5198,7 +5198,7 @@ export default function FileTracking() {
                       <SelectValue placeholder="Select Contractor Account..." />
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-950 border-white/10">
-                      {contractorAccounts.map(account => (
+                      {(contractorAccounts || []).map(account => (
                         <SelectItem key={account.id} value={account.config_key}>
                           {account.config_label} <span className="text-white/40 ml-2 font-mono text-xs">({account.config_key})</span>
                         </SelectItem>
@@ -5673,13 +5673,18 @@ export default function FileTracking() {
             </CardContent>
 
             {/* Journey History at the Bottom */}
-            {records.find(r => r.receiving_number === formData.receiving_number) && (
-              <div className="border-t border-border/50 bg-muted/10 p-6">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-primary mb-6 flex items-center gap-2">
-                  <History className="w-5 h-5" /> Detailed File Movement Record
-                </h3>
-                <div className="space-y-0 ml-4 border-l-2 border-primary/20">
-                  {records.find(r => r.receiving_number === formData.receiving_number)?.history.map((step: any, i: number) => (
+            {(() => {
+              const matchedRecord = (records || []).find(r => r.receiving_number === formData.receiving_number);
+              if (!matchedRecord || !Array.isArray(matchedRecord.history) || matchedRecord.history.length === 0) {
+                return null;
+              }
+              return (
+                <div className="border-t border-border/50 bg-muted/10 p-6">
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-primary mb-6 flex items-center gap-2">
+                    <History className="w-5 h-5" /> Detailed File Movement Record
+                  </h3>
+                  <div className="space-y-0 ml-4 border-l-2 border-primary/20">
+                    {matchedRecord.history.map((step: any, i: number) => (
                     <div key={i} className="relative pb-8 pl-8 last:pb-0">
                       <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
                         <div className="w-2 h-2 bg-white rounded-full"></div>
@@ -5761,7 +5766,8 @@ export default function FileTracking() {
                   ))}
                 </div>
               </div>
-            )}
+            );
+          })()}
           </Card>
         </TabsContent>
 

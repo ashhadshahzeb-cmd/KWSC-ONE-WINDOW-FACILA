@@ -232,14 +232,14 @@ async function saveConfigsToIndexedDB(items: AppConfigItem[]) {
  * Helper: given a main_category key, returns the sub-categories for it
  */
 export function getSubCategoriesFor(subCategories: AppConfigItem[], mainKey: string): AppConfigItem[] {
-  return subCategories.filter(s => s.parent_key === mainKey);
+  return (subCategories || []).filter(s => s && s.parent_key === mainKey);
 }
 
 /**
  * Helper: convert sections array to the { id, name } format used in FileTracking
  */
 export function sectionsToLegacy(sections: AppConfigItem[]): { id: string; name: string }[] {
-  return sections.map(s => ({ id: s.config_key, name: s.config_label.toUpperCase() }));
+  return (sections || []).map(s => ({ id: s.config_key, name: (s.config_label || s.config_key || '').toUpperCase() }));
 }
 
 /**
@@ -250,7 +250,7 @@ export function toCategoryOptions(
   subCategories: AppConfigItem[]
 ): Record<string, string[]> {
   const result: Record<string, string[]> = {};
-  for (const mc of mainCategories) {
+  for (const mc of (mainCategories || [])) {
     result[mc.config_key] = getSubCategoriesFor(subCategories, mc.config_key).map(sc => sc.config_label);
   }
   return result;
