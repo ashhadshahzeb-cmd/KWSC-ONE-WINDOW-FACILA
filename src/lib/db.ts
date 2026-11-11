@@ -37,6 +37,7 @@ export interface FileRecord {
   additional_mark_to?: string;
   fuel_station?: string;
   file_image?: string; // base64 compressed JPEG of document photo
+  file_images?: string[]; // Multiple document photos / scans
   // Local only fields for syncing
   is_dirty?: boolean; // Flag indicating it needs sync
   deleted_locally?: boolean; // Flag indicating it was deleted offline
@@ -48,6 +49,7 @@ export interface PendingFileRecord {
   category: string;
   subject?: string;
   file_image?: string;
+  file_images?: string[];
   status: string; // 'pending' | 'completed'
   created_at?: string;
   completed_at?: string;

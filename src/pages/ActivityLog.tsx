@@ -385,11 +385,16 @@ export default function ActivityLog() {
 
     // 1. Direct check in log details (REGISTER, EDIT, FORWARD payloads)
     const directImage =
+      (Array.isArray(selectedLog.details?.file_images) && selectedLog.details.file_images[0]) ||
+      (Array.isArray(selectedLog.details?.after?.file_images) && selectedLog.details.after.file_images[0]) ||
+      (Array.isArray(selectedLog.details?.before?.file_images) && selectedLog.details.before.file_images[0]) ||
       selectedLog.details?.file_image ||
       selectedLog.details?.after?.file_image ||
       selectedLog.details?.before?.file_image ||
       (Array.isArray(selectedLog.details?.history) &&
-        [...selectedLog.details.history].reverse().find((h: any) => h?.file_image)?.file_image);
+        [...selectedLog.details.history].reverse().find((h: any) => h?.file_image || (Array.isArray(h?.file_images) && h.file_images.length > 0))?.file_image) ||
+      (Array.isArray(selectedLog.details?.history) &&
+        [...selectedLog.details.history].reverse().find((h: any) => Array.isArray(h?.file_images) && h.file_images.length > 0)?.file_images?.[0]);
 
     if (directImage) {
       setSelectedLogImage(directImage);
@@ -1072,10 +1077,14 @@ export default function ActivityLog() {
                                     </p>
                                     {(() => {
                                       const rowImg =
+                                        (Array.isArray(log.details?.file_images) && log.details.file_images[0]) ||
+                                        (Array.isArray(log.details?.after?.file_images) && log.details.after.file_images[0]) ||
                                         log.details?.file_image ||
                                         log.details?.after?.file_image ||
                                         (Array.isArray(log.details?.history) &&
-                                          [...log.details.history].reverse().find((h: any) => h?.file_image)?.file_image);
+                                          [...log.details.history].reverse().find((h: any) => h?.file_image || (Array.isArray(h?.file_images) && h.file_images.length > 0))?.file_image) ||
+                                        (Array.isArray(log.details?.history) &&
+                                          [...log.details.history].reverse().find((h: any) => Array.isArray(h?.file_images) && h.file_images.length > 0)?.file_images?.[0]);
                                       if (!rowImg) return null;
                                       return (
                                         <img
@@ -1348,12 +1357,12 @@ export default function ActivityLog() {
                 </div>
               )}
 
-              {/* Full-Slip Official KWSC Watermark - Subtle, clean opacity so it doesn't pollute text or print */}
+              {/* Full-Slip Official KWSC Watermark - Subtle, light opacity so it doesn't pollute text or print */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[35] overflow-hidden">
                 <img
                   src="/kwsc-watermark-logo.png"
                   alt="KWSC Watermark"
-                  className="w-[340px] h-[340px] object-contain opacity-[0.20] select-none filter contrast-125 print:opacity-[0.25]"
+                  className="w-[340px] h-[340px] object-contain opacity-[0.06] select-none print:opacity-[0.08]"
                 />
               </div>
 

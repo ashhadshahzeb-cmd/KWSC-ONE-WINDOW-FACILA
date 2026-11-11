@@ -203,23 +203,23 @@ export default function NotificationListener() {
 
   const showNotification = (record: any, action: 'registered' | 'forwarded' | 'admin_new_entry') => {
     toast.custom((t) => (
-      <div className="bg-[#0f1115]/95 border border-sky-500/30 p-4 rounded-2xl shadow-2xl backdrop-blur-xl flex items-start gap-4 animate-in slide-in-from-right w-[350px]">
-        <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center shrink-0">
-          <BellRing className="w-5 h-5 text-sky-400 animate-pulse" />
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-2xl shadow-lg flex items-start gap-3.5 animate-in slide-in-from-right w-[360px]">
+        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/15 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center shrink-0">
+          <BellRing className="w-5 h-5 text-blue-600 dark:text-blue-400" />
         </div>
-        <div className="flex-1 space-y-1">
-          <p className="text-sm font-black text-white tracking-wide">
+        <div className="flex-1 space-y-1 min-w-0">
+          <p className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
             {action === 'admin_new_entry' ? 'New File Entered by User!' : `New File ${action === 'forwarded' ? 'Forwarded' : 'Received'}!`}
           </p>
-          <div className="flex items-center gap-2 text-xs text-white/70">
-            <FileText className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="font-mono text-emerald-400 font-bold">{record.receiving_number || 'N/A'}</span>
+          <div className="flex items-center gap-2 text-xs">
+            <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{record.receiving_number || 'N/A'}</span>
           </div>
-          <p className="text-xs text-white/50 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
             {record.subject || 'No subject provided'}
           </p>
           {record.received_from && (
-            <p className="text-[10px] text-white/40 italic mt-1">
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 italic mt-0.5">
               From: {record.received_from}
             </p>
           )}
@@ -241,18 +241,18 @@ export default function NotificationListener() {
 
   const showMessageNotification = (msg: any) => {
     toast.custom((t) => (
-      <div className="bg-[#0f1115]/95 border border-amber-500/30 p-4 rounded-2xl shadow-2xl backdrop-blur-xl flex items-start gap-4 animate-in slide-in-from-right w-[350px]">
-        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
-          <MessageCircle className="w-5 h-5 text-amber-400 animate-pulse" />
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-2xl shadow-lg flex items-start gap-3.5 animate-in slide-in-from-right w-[360px]">
+        <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 flex items-center justify-center shrink-0">
+          <MessageCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
         </div>
-        <div className="flex-1 space-y-1">
-          <p className="text-sm font-black text-white tracking-wide">
+        <div className="flex-1 space-y-1 min-w-0">
+          <p className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
             New Message
           </p>
-          <p className="text-xs text-white/70 font-semibold">
-            From: <span className="text-amber-400">{msg.sender_name || msg.sender_role}</span>
+          <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
+            From: <span className="text-amber-600 dark:text-amber-400">{msg.sender_name || msg.sender_role}</span>
           </p>
-          <p className="text-xs text-white/50 line-clamp-2 leading-relaxed italic border-l-2 border-white/10 pl-2 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed italic border-l-2 border-slate-200 dark:border-slate-600 pl-2 mt-1">
             "{msg.message}"
           </p>
         </div>

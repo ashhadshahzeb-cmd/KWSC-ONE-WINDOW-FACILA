@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, FileImage, ShieldCheck, CheckCircle2, Clock } from "lucide-react";
+import { Upload, FileImage, ShieldCheck, CheckCircle2, Clock, Trash2, RefreshCw, Eye } from "lucide-react";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useSyncManager } from "@/hooks/useSyncManager";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,8 @@ export default function FileReception() {
   const [category, setCategory] = useState("");
   const [subject, setSubject] = useState("");
   const [fileImage, setFileImage] = useState<string>("");
+  const [fileImages, setFileImages] = useState<string[]>([]);
+  const [isProcessingPhotos, setIsProcessingPhotos] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Mobile Upload State
@@ -113,7 +115,8 @@ export default function FileReception() {
         tracking_code: trackingCode.trim(),
         category,
         subject: subject.trim(),
-        file_image: fileImage || null,
+        file_image: fileImages[0] || fileImage || null,
+        file_images: fileImages.length > 0 ? fileImages : undefined,
         status: 'pending',
         created_at: new Date().toISOString()
       };
@@ -134,6 +137,7 @@ export default function FileReception() {
       setCategory("");
       setSubject("");
       setFileImage("");
+      setFileImages([]);
       fetchData();
       setActiveTab("pending_files");
     } catch (err: any) {
@@ -223,81 +227,134 @@ export default function FileReception() {
                 </div>
 
                 <div className="space-y-4">
-                  <Label className="text-xs font-bold text-white/70 uppercase">Document Photo</Label>
-                  {fileImage ? (
-                    <div className="relative border border-border/20 rounded-xl overflow-hidden bg-black/40">
-                      <img src={fileImage} alt="Document" className="w-full max-h-48 object-contain" />
-                      <button
-                        type="button"
-                        onClick={() => setFileImage("")}
-                        className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-md"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      <label className="cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = (ev) => {
-                              const img = new Image();
-                              img.src = ev.target?.result as string;
-                              img.onload = () => {
-                                const canvas = document.createElement('canvas');
-                                const MAX = 800;
-                                let w = img.width, h = img.height;
-                                if (w > h) { if (w > MAX) { h = h * MAX / w; w = MAX; } }
-                                else { if (h > MAX) { w = w * MAX / h; h = MAX; } }
-                                canvas.width = w; canvas.height = h;
-                                canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
-                                setFileImage(canvas.toDataURL('image/jpeg', 0.65));
-                              };
-                            };
-                            reader.readAsDataURL(file);
-                            e.target.value = '';
-                          }}
-                        />
-                        <div className="flex items-center justify-center gap-2 px-4 py-8 rounded-xl border-2 border-dashed border-white/10 bg-[#111318] hover:bg-[#1a1d24] transition-colors text-sm font-bold text-muted-foreground">
-                          <Upload className="w-5 h-5" />
-                          Upload from PC
-                        </div>
-                      </label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-white/70 uppercase">Document Photos / Scans</Label>
+                    {fileImages.length > 0 && (
+                      <Badge variant="outline" className="text-xs font-bold text-teal-400 border-teal-500/30 bg-teal-500/10">
+                        {fileImages.length} {fileImages.length === 1 ? 'Photo Attached' : 'Photos Attached'}
+                      </Badge>
+                    )}
+                  </div>
 
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="w-full font-bold bg-primary/10 text-primary hover:bg-primary/20"
-                        onClick={() => {
-                          const sessionId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                          setMobileUploadSessionId(sessionId);
-                          setShowMobileUploadQR(true);
-                          setIsMobileListening(true);
-                          
-                          const channel = supabase.channel(`mobile-upload-${sessionId}`);
-                          channel
-                            .on('broadcast', { event: 'image-uploaded' }, (payload) => {
-                              if (payload?.payload?.image) {
-                                setFileImage(payload.payload.image);
-                                setShowMobileUploadQR(false);
-                                setIsMobileListening(false);
-                                toast.success("Document photo received from mobile!");
-                                supabase.removeChannel(channel);
-                              }
-                            })
-                            .subscribe();
-                        }}
-                      >
-                        <FileImage className="w-4 h-4 mr-2" /> Use Mobile Camera
-                      </Button>
+                  {fileImages.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {fileImages.map((img, idx) => (
+                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-white/10 bg-black/40 aspect-square">
+                          <img src={img} alt={`Doc ${idx + 1}`} className="w-full h-full object-cover" />
+                          <span className="absolute top-1 left-1 bg-black/80 text-[10px] font-black px-1.5 py-0.5 rounded text-white">
+                            #{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = fileImages.filter((_, i) => i !== idx);
+                              setFileImages(updated);
+                              setFileImage(updated[0] || "");
+                            }}
+                            className="absolute top-1 right-1 p-1 bg-red-600/90 hover:bg-red-700 text-white rounded-md transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <label className={`cursor-pointer flex-1 ${isProcessingPhotos ? 'opacity-60 pointer-events-none' : ''}`}>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        disabled={isProcessingPhotos}
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+                          setIsProcessingPhotos(true);
+                          try {
+                            const newUrls: string[] = [];
+                            for (const file of files) {
+                              const dataUrl = await new Promise<string>((resolve) => {
+                                const reader = new FileReader();
+                                reader.onload = (ev) => {
+                                  const img = new Image();
+                                  img.src = ev.target?.result as string;
+                                  img.onload = () => {
+                                    const canvas = document.createElement('canvas');
+                                    const MAX = 1000;
+                                    let w = img.width, h = img.height;
+                                    if (w > h) { if (w > MAX) { h = Math.round((h * MAX) / w); w = MAX; } }
+                                    else { if (h > MAX) { w = Math.round((w * MAX) / h); h = MAX; } }
+                                    canvas.width = w; canvas.height = h;
+                                    canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+                                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                                  };
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                              newUrls.push(dataUrl);
+                            }
+                            setFileImages(prev => {
+                              const updated = [...prev, ...newUrls];
+                              setFileImage(updated[0] || "");
+                              return updated;
+                            });
+                            toast.success(`Attached ${files.length} photo(s)!`);
+                          } catch (err) {
+                            console.error(err);
+                          } finally {
+                            setIsProcessingPhotos(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                      <div className="flex items-center justify-center gap-2 px-4 py-4 rounded-xl border-2 border-dashed border-white/10 bg-[#111318] hover:bg-[#1a1d24] transition-colors text-sm font-bold text-muted-foreground">
+                        {isProcessingPhotos ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin text-teal-400" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 text-teal-400" />
+                            {fileImages.length > 0 ? "+ Add More from PC" : "Upload from PC (Multiple Allowed)"}
+                          </>
+                        )}
+                      </div>
+                    </label>
+
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-auto py-4 font-bold bg-primary/10 text-primary hover:bg-primary/20 shrink-0"
+                      onClick={() => {
+                        const sessionId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                        setMobileUploadSessionId(sessionId);
+                        setShowMobileUploadQR(true);
+                        setIsMobileListening(true);
+                        
+                        const channel = supabase.channel(`mobile-upload-${sessionId}`);
+                        channel
+                          .on('broadcast', { event: 'image-uploaded' }, (payload) => {
+                            if (payload?.payload?.image) {
+                              const incoming: string[] = Array.isArray(payload.payload.image)
+                                ? payload.payload.image
+                                : [payload.payload.image];
+                              setFileImages(prev => {
+                                const updated = [...prev, ...incoming];
+                                setFileImage(updated[0] || "");
+                                return updated;
+                              });
+                              toast.success(`${incoming.length} photo(s) received from mobile!`);
+                            }
+                          })
+                          .subscribe();
+                      }}
+                    >
+                      <FileImage className="w-4 h-4 mr-2 text-teal-400" /> Use Mobile Camera
+                    </Button>
+                  </div>
 
                   {showMobileUploadQR && (
                     <div className="p-4 bg-white rounded-xl flex flex-col items-center justify-center gap-4">
@@ -306,11 +363,14 @@ export default function FileReception() {
                         alt="QR Code"
                         className="w-[160px] h-[160px]"
                       />
-                      <p className="text-xs text-black font-medium text-center">Scan with mobile to upload photo directly</p>
+                      <p className="text-xs text-black font-medium text-center">Scan with mobile to take or select multiple photos</p>
+                      {fileImages.length > 0 && (
+                        <span className="text-xs font-bold text-teal-600">✓ {fileImages.length} photo(s) received</span>
+                      )}
                       <Button size="sm" variant="outline" className="w-full text-black border-black/20" onClick={() => {
                         setShowMobileUploadQR(false);
                         setIsMobileListening(false);
-                      }}>Cancel</Button>
+                      }}>Done / Close</Button>
                     </div>
                   )}
                 </div>

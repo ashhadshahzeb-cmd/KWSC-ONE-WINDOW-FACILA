@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +44,12 @@ import {
   ScanLine,
   Wifi,
   WifiOff,
-  CloudOff, AlertTriangle
+  CloudOff, AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  X
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { QRCodeCanvas } from "qrcode.react";
@@ -68,6 +73,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAppConfig, getSubCategoriesFor, sectionsToLegacy } from "@/hooks/useAppConfig";
+import { syncToGoogleSheetDirectly } from "@/lib/googleSheetsClient";
 import { logActivity } from "@/hooks/useActivityLog";
 import { checkDeleteBurst } from "@/hooks/useSecurityMonitor";
 import { addToOfflineQueue, syncOrphanedDirtyRecords } from "@/lib/offlineSync";
@@ -155,6 +161,44 @@ const getLocalDateString = (dateStr?: string | Date | null): string => {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return year + '-' + month + '-' + day;
+};
+
+// Robust helper to extract all document images from record or its history
+const extractRecordImages = (rec: any): string[] => {
+  if (!rec) return [];
+  // 1. Array file_images on record
+  if (Array.isArray(rec.file_images) && rec.file_images.length > 0) {
+    return rec.file_images.filter(Boolean);
+  }
+  // 2. Check if file_image is a JSON array string
+  if (typeof rec.file_image === 'string' && rec.file_image.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(rec.file_image);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.filter(Boolean);
+    } catch {}
+  }
+  // 3. Check history
+  if (Array.isArray(rec.history) && rec.history.length > 0) {
+    for (const h of [...rec.history].reverse()) {
+      if (Array.isArray(h?.file_images) && h.file_images.length > 0) {
+        return h.file_images.filter(Boolean);
+      }
+      if (typeof h?.file_image === 'string' && h.file_image.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(h.file_image);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed.filter(Boolean);
+        } catch {}
+      }
+      if (h?.file_image && typeof h.file_image === 'string') {
+        return [h.file_image];
+      }
+    }
+  }
+  // 4. Single file_image on record
+  if (rec.file_image && typeof rec.file_image === 'string') {
+    return [rec.file_image];
+  }
+  return [];
 };
 
 export default function FileTracking() {
@@ -246,6 +290,9 @@ export default function FileTracking() {
   // Tracks when the registration form was opened/reset
   const formStartTimeRef = useRef<number>(Date.now());
   const [fileImage, setFileImage] = useState<string>("");
+  const [fileImages, setFileImages] = useState<string[]>([]);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [previewGallery, setPreviewGallery] = useState<{ images: string[]; initialIndex: number; title: string } | null>(null);
   const [pendingTrackingCode, setPendingTrackingCode] = useState("");
   const [linkedPendingId, setLinkedPendingId] = useState<string | null>(null);
   const [mobileUploadSessionId, setMobileUploadSessionId] = useState<string>("");
@@ -492,6 +539,38 @@ export default function FileTracking() {
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
 
+  // Build a complete formData object from a record so NO field is ever lost during edit
+  const buildFormDataFromRecord = (record: any) => ({
+    cfo_diary_number: record.cfo_diary_number || "",
+    inward_date: record.inward_date || getLocalDateString(),
+    registration_date: record.created_at ? getLocalDateString(record.created_at) : getLocalDateString(),
+    print_date: record.print_date || (record.created_at ? getLocalDateString(record.created_at) : getLocalDateString()),
+    received_from: record.received_from || "",
+    receiving_number: record.receiving_number || "",
+    mainCategory: record.mainCategory || record.main_category || "",
+    subCategory: record.subCategory || record.sub_category || "",
+    subject: record.subject || "",
+    date_of_sign: record.date_of_sign || getLocalDateString(),
+    signature_data: record.signature_data || "",
+    mark_to: record.mark_to || "cfo",
+    outward_date: record.outward_date || getLocalDateString(),
+    amount: record.amount || 0,
+    gross_amount: record.gross_amount || 0,
+    deduction: record.deduction || 0,
+    remarks: record.remarks || "",
+    employee_number: record.employee_number || "",
+    voucher_code: record.voucher_code || "",
+    vehicle_no: record.vehicle_no || "",
+    department_number: record.department_number || "",
+    no_amount: record.no_amount || false,
+    subject_prefix: record.subject_prefix || "",
+    fuel_station: record.fuel_station || "",
+    additional_mark_to: record.additional_mark_to || "",
+    handover_person_name: record.handover_person_name || "",
+    file_purpose: record.file_purpose || "",
+    budget_code: record.budget_code || "",
+  });
+
   useEffect(() => {
     if (!isEditModalOpen || !recordToEdit || !userRole || approvalStatus !== "waiting") return;
     
@@ -511,28 +590,13 @@ export default function FileTracking() {
             setActiveTab("register");
             setFormData({
               ...formData,
-              cfo_diary_number: recordToEdit.cfo_diary_number,
-              inward_date: recordToEdit.inward_date || getLocalDateString(),
-              registration_date: recordToEdit.created_at ? getLocalDateString(recordToEdit.created_at) : getLocalDateString(),
-              print_date: recordToEdit.created_at ? getLocalDateString(recordToEdit.created_at) : getLocalDateString(),
-              received_from: recordToEdit.received_from || "",
-              receiving_number: recordToEdit.receiving_number,
-              mainCategory: recordToEdit.mainCategory || recordToEdit.main_category || "",
-              subCategory: recordToEdit.subCategory || recordToEdit.sub_category || "",
-              subject: recordToEdit.subject || "",
-              amount: recordToEdit.amount || 0,
-              gross_amount: recordToEdit.gross_amount || 0,
-              deduction: recordToEdit.deduction || 0,
-              remarks: recordToEdit.remarks || "",
-              mark_to: recordToEdit.mark_to || "cfo",
-              signature_data: recordToEdit.signature_data || "",
-              employee_number: recordToEdit.employee_number || "",
-              voucher_code: recordToEdit.voucher_code || "",
+              ...buildFormDataFromRecord(recordToEdit),
             });
             setIsEditingMode(true);
             setEditingRecordId(recordToEdit.id);
-            const existingImage = recordToEdit.file_image || (recordToEdit.history && recordToEdit.history.length > 0 && [...recordToEdit.history].reverse().find((h) => h.file_image)?.file_image) || "";
-            setFileImage(existingImage);
+            const existingImages = extractRecordImages(recordToEdit);
+            setFileImages(existingImages);
+            setFileImage(existingImages[0] || "");
             
           } else if (newMsg.receiver_role === userRole && newMsg.message.startsWith('[FILE_TRACKING_EDIT_REJECTED]::' + recordToEdit.id)) {
             toast.error("Admin rejected edit request.");
@@ -559,54 +623,26 @@ export default function FileTracking() {
       setActiveTab("register");
       setFormData({
         ...formData,
-        cfo_diary_number: record.cfo_diary_number,
-        inward_date: record.inward_date || getLocalDateString(),
-        registration_date: record.created_at ? getLocalDateString(record.created_at) : getLocalDateString(),
-        print_date: record.created_at ? getLocalDateString(record.created_at) : getLocalDateString(),
-        received_from: record.received_from || "",
-        receiving_number: record.receiving_number,
-        mainCategory: record.mainCategory || record.main_category || "",
-        subCategory: record.subCategory || record.sub_category || "",
-        subject: record.subject || "",
-        amount: record.amount || 0,
-        gross_amount: record.gross_amount || 0,
-        deduction: record.deduction || 0,
-        remarks: record.remarks || "",
-        mark_to: record.mark_to || "cfo",
-        signature_data: record.signature_data || "",
-        employee_number: record.employee_number || "",
-        voucher_code: record.voucher_code || "",
+        ...buildFormDataFromRecord(record),
       });
       setIsEditingMode(true);
       setEditingRecordId(record.id);
-      const existingImage = record.file_image || (record.history && record.history.length > 0 && [...record.history].reverse().find((h) => h.file_image)?.file_image) || "";
-      setFileImage(existingImage);
+      setIsForwardingMode(false);
+      const existingImages = extractRecordImages(record);
+      setFileImages(existingImages);
+      setFileImage(existingImages[0] || "");
     } else if (!isFileEditPasswordEnabled) {
       setActiveTab("register");
       setFormData({
         ...formData,
-        cfo_diary_number: record.cfo_diary_number,
-        inward_date: record.inward_date || getLocalDateString(),
-        registration_date: record.created_at ? getLocalDateString(record.created_at) : getLocalDateString(),
-        print_date: record.created_at ? getLocalDateString(record.created_at) : getLocalDateString(),
-        received_from: record.received_from || "",
-        receiving_number: record.receiving_number,
-        mainCategory: record.mainCategory || record.main_category || "",
-        subCategory: record.subCategory || record.sub_category || "",
-        subject: record.subject || "",
-        amount: record.amount || 0,
-        gross_amount: record.gross_amount || 0,
-        deduction: record.deduction || 0,
-        remarks: record.remarks || "",
-        mark_to: record.mark_to || "cfo",
-        signature_data: record.signature_data || "",
-        employee_number: record.employee_number || "",
-        voucher_code: record.voucher_code || "",
+        ...buildFormDataFromRecord(record),
       });
       setIsEditingMode(true);
       setEditingRecordId(record.id);
-      const existingImage = record.file_image || (record.history && record.history.length > 0 && [...record.history].reverse().find((h) => h.file_image)?.file_image) || "";
-      setFileImage(existingImage);
+      setIsForwardingMode(false);
+      const existingImages = extractRecordImages(record);
+      setFileImages(existingImages);
+      setFileImage(existingImages[0] || "");
     } else {
       setApprovalStatus("waiting");
       setIsEditModalOpen(true);
@@ -681,36 +717,15 @@ export default function FileTracking() {
     setActiveTab("register");
     setFormData({
       ...formData,
-      cfo_diary_number: recordToEdit.cfo_diary_number,
-      inward_date: recordToEdit.inward_date || getLocalDateString(),
-      registration_date: recordToEdit.created_at ? getLocalDateString(recordToEdit.created_at) : getLocalDateString(),
-      print_date: recordToEdit.created_at ? getLocalDateString(recordToEdit.created_at) : getLocalDateString(),
-      received_from: recordToEdit.received_from || "",
-      receiving_number: recordToEdit.receiving_number,
-      mainCategory: recordToEdit.mainCategory || recordToEdit.main_category || "",
-      subCategory: recordToEdit.subCategory || recordToEdit.sub_category || "",
-      subject: recordToEdit.subject || "",
-      amount: recordToEdit.amount || 0,
-      gross_amount: recordToEdit.gross_amount || 0,
-      deduction: recordToEdit.deduction || 0,
-      remarks: recordToEdit.remarks || "",
-      mark_to: recordToEdit.mark_to || "cfo",
-      signature_data: recordToEdit.signature_data || "",
-      employee_number: recordToEdit.employee_number || "",
-      voucher_code: recordToEdit.voucher_code || "",
-      vehicle_no: recordToEdit.vehicle_no || "",
-      date_of_sign: recordToEdit.date_of_sign || getLocalDateString(),
-      outward_date: recordToEdit.outward_date || getLocalDateString(),
-      additional_mark_to: recordToEdit.additional_mark_to || "",
-      handover_person_name: recordToEdit.handover_person_name || "",
-      file_purpose: recordToEdit.file_purpose || "",
+      ...buildFormDataFromRecord(recordToEdit),
     });
     setIsEditingMode(true);
     setEditingRecordId(recordToEdit.id);
     setIsForwardingMode(false);
-    // Load existing image if available (from root or history)
-    const existingImage = recordToEdit.file_image || (recordToEdit.history && recordToEdit.history.length > 0 && [...recordToEdit.history].reverse().find(h => h.file_image)?.file_image) || "";
-    setFileImage(existingImage);
+    // Load existing images if available (from root or history)
+    const existingImages = extractRecordImages(recordToEdit);
+    setFileImages(existingImages);
+    setFileImage(existingImages[0] || "");
     toast.info(`Editing record: ${recordToEdit.subject}`);
   };
 
@@ -1106,6 +1121,87 @@ export default function FileTracking() {
     const found = (dynSubCats || []).find(sc => sc.parent_key === parentKey && sc.config_label === label);
     return found ? found.config_key : label.toLowerCase().replace(/ /g, '_');
   };
+
+  const processAndUploadFile = async (file: File): Promise<string> => {
+    return new Promise(async (resolve) => {
+      try {
+        const dataUrl = await new Promise<string>((res) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const img = new Image();
+            img.src = ev.target?.result as string;
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX = 1200;
+              let w = img.width, h = img.height;
+              if (w > h) {
+                if (w > MAX) { h = Math.round((h * MAX) / w); w = MAX; }
+              } else {
+                if (h > MAX) { w = Math.round((w * MAX) / h); h = MAX; }
+              }
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, w, h);
+              res(canvas.toDataURL('image/jpeg', 0.75));
+            };
+            img.onerror = () => res(ev.target?.result as string);
+          };
+          reader.readAsDataURL(file);
+        });
+
+        const blob = await fetch(dataUrl).then(r => r.blob());
+        const fileName = `doc_images/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('file-tracking-images')
+          .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false });
+
+        if (uploadError) {
+          console.warn('Storage upload failed, falling back to base64:', uploadError.message);
+          resolve(dataUrl);
+        } else {
+          const { data: urlData } = supabase.storage
+            .from('file-tracking-images')
+            .getPublicUrl(fileName);
+          resolve(urlData.publicUrl);
+        }
+      } catch (err) {
+        console.warn('Image processing error:', err);
+        resolve("");
+      }
+    });
+  };
+
+  const handleMultiImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setIsUploadingImages(true);
+    const toastId = toast.loading(`Uploading ${files.length} document photo(s)...`);
+    try {
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const url = await processAndUploadFile(files[i]);
+        if (url) uploadedUrls.push(url);
+      }
+      if (uploadedUrls.length > 0) {
+        setFileImages(prev => {
+          const updated = [...prev, ...uploadedUrls];
+          setFileImage(updated[0] || "");
+          return updated;
+        });
+        toast.success(`Successfully uploaded ${uploadedUrls.length} photo(s)!`, { id: toastId });
+      } else {
+        toast.error("Failed to upload photos. Please try again.", { id: toastId });
+      }
+    } catch (err) {
+      console.error("Multi image upload error:", err);
+      toast.error("An error occurred during upload.", { id: toastId });
+    } finally {
+      setIsUploadingImages(false);
+      e.target.value = '';
+    }
+  };
+
   const handleFormReset = () => {
     // Trigger the useEffect above to fetch next number after reset
     setIsForwardingMode(false);
@@ -1138,6 +1234,7 @@ export default function FileTracking() {
     setSelectedEmpProfile(null);
     setEmpSuggestions([]);
     setShowEmpSuggestions(false);
+    setFileImages([]);
     setFileImage("");
     setShowMobileUploadQR(false);
     setMobileUploadSessionId("");
@@ -1198,7 +1295,11 @@ export default function FileTracking() {
           return;
         }
         setLinkedPendingId(record.id);
-        if (record.file_image) setFileImage(record.file_image);
+        const pendingImages = extractRecordImages(record);
+        if (pendingImages.length > 0) {
+          setFileImages(pendingImages);
+          setFileImage(pendingImages[0] || "");
+        }
         setFormData(prev => ({ 
           ...prev, 
           mainCategory: record.category || "",
@@ -1241,7 +1342,7 @@ export default function FileTracking() {
         return;
       }
     } else {
-      if (!formData.cfo_diary_number || !formData.receiving_number || !formData.subject || !formData.mainCategory || (isSubCategoryRequired && !formData.subCategory) || !formData.mark_to || !formData.handover_person_name || !formData.file_purpose) {
+      if (!formData.cfo_diary_number || !formData.receiving_number || !formData.subject || !formData.mainCategory || (isSubCategoryRequired && !formData.subCategory) || !formData.mark_to || !formData.file_purpose) {
         toast.error("Please fill all required fields");
         return;
       }
@@ -1308,7 +1409,8 @@ export default function FileTracking() {
         amount: formData.amount,
         gross_amount: formData.gross_amount || 0,
         deduction: formData.deduction || 0,
-        file_image: fileImage || undefined
+        file_image: fileImages[0] || undefined,
+        file_images: fileImages.length > 0 ? fileImages : undefined
       };
 
       if (isEditingMode) {
@@ -1345,7 +1447,8 @@ export default function FileTracking() {
         // For local Dexie only, keep file_image on root for easy access
         const localUpdatePayload = {
           ...updatePayload,
-          file_image: fileImage || undefined
+          file_image: fileImages[0] || undefined,
+          file_images: fileImages.length > 0 ? fileImages : undefined
         };
 
         // Get old record before modification for activity log diff
@@ -1370,8 +1473,8 @@ export default function FileTracking() {
           record_id: formData.receiving_number,
         });
 
-        const { file_image: _img1, signature_data: _sig1, ...safeOldRecord } = (oldRecord || {}) as any;
-        const { file_image: _img2, signature_data: _sig2, ...safeUpdateRecord } = updatePayload as any;
+        const { file_image: _img1, file_images: _imgs1, signature_data: _sig1, ...safeOldRecord } = (oldRecord || {}) as any;
+        const { file_image: _img2, file_images: _imgs2, signature_data: _sig2, ...safeUpdateRecord } = updatePayload as any;
         logActivity({
           userRole: currentRole || 'unknown',
           userName: userName || sections.find(s => s.id === currentRole)?.name || currentRole || 'Unknown',
@@ -1428,7 +1531,8 @@ export default function FileTracking() {
 
         const localUpdatePayload = {
           ...updatePayload,
-          file_image: fileImage || undefined
+          file_image: fileImages[0] || undefined,
+          file_images: fileImages.length > 0 ? fileImages : undefined
         };
 
         // Update locally
@@ -1445,8 +1549,8 @@ export default function FileTracking() {
           record_id: formData.receiving_number,
         });
 
-        const { file_image: _imgF1, signature_data: _sigF1, ...safeExistRecord } = (existingRecord || {}) as any;
-        const { file_image: _imgF2, signature_data: _sigF2, ...safeFwdRecord } = updatePayload as any;
+        const { file_image: _imgF1, file_images: _imgsF1, signature_data: _sigF1, ...safeExistRecord } = (existingRecord || {}) as any;
+        const { file_image: _imgF2, file_images: _imgsF2, signature_data: _sigF2, ...safeFwdRecord } = updatePayload as any;
         logActivity({
           userRole: currentRole || 'unknown',
           userName: userName || sections.find(s => s.id === currentRole)?.name || currentRole || 'Unknown',
@@ -1526,13 +1630,16 @@ export default function FileTracking() {
           print_date: formData.print_date || getLocalDateString(),
           history: [snapshot],
           created_at: formData.registration_date
-            ? safeISOString(formData.registration_date + 'T00:00:00')
+            ? (formData.registration_date === getLocalDateString()
+                ? new Date().toISOString()
+                : safeISOString(formData.registration_date + 'T12:00:00'))
             : new Date().toISOString()
         };
 
         const localNewEntry = {
           ...newEntry,
-          file_image: fileImage || undefined
+          file_image: fileImages[0] || undefined,
+          file_images: fileImages.length > 0 ? fileImages : undefined
         };
 
         // Insert locally
@@ -1552,7 +1659,7 @@ export default function FileTracking() {
 
         // Calculate how long the user took to fill the registration form
         const formFillDurationMs = Date.now() - formStartTimeRef.current;
-        const { file_image: _nImg, signature_data: _nSig, ...safeNewEntry } = newEntry as any;
+        const { file_image: _nImg, file_images: _nImgs, signature_data: _nSig, ...safeNewEntry } = newEntry as any;
         logActivity({
           userRole: currentRole || 'unknown',
           userName: userName || sections.find(s => s.id === currentRole)?.name || currentRole || 'Unknown',
@@ -1942,7 +2049,7 @@ export default function FileTracking() {
       const to = from + DB_PAGE_SIZE - 1;
 
       // Fast slim column selection for table rows (excludes heavy base64 signature_data & file_image)
-      const tableSelectColumns = 'id, tracking_id, cfo_diary_number, receiving_number, inward_date, outward_date, main_category, sub_category, subject, mark_to, amount, gross_amount, deduction, received_from, employee_number, voucher_code, vehicle_no, print_date, handover_person_name, file_purpose, budget_code, remarks, created_at, date_of_sign' + (activeTab === 'bulk_modified' || activeTab === 'timeline' ? ', history' : '');
+      const tableSelectColumns = 'id, tracking_id, cfo_diary_number, receiving_number, inward_date, outward_date, main_category, sub_category, subject, mark_to, amount, gross_amount, deduction, received_from, employee_number, voucher_code, vehicle_no, print_date, handover_person_name, file_purpose, budget_code, remarks, created_at, date_of_sign, history';
 
       let query = supabase
         .from('file_tracking_records' as any)
@@ -1957,25 +2064,17 @@ export default function FileTracking() {
         // Fetch all records, we rely on local IndexedDB to filter out 'trashed' status
       }
         
-        if (activeTab === 'tray' || activeTab === 'timeline' || activeTab === 'returned_files') {
+      if (activeTab === 'tray' || activeTab === 'timeline') {
         const effectiveRole = effectiveViewingRole;
         if (!(currentRole === 'cfo' || isAdmin)) {
           if (activeTab === 'tray') {
             query = query.eq('mark_to', effectiveRole);
-          } else if (activeTab === 'returned_files') {
-            query = query.eq('additional_mark_to', currentRole);
           } else {
             query = query.or(`mark_to.eq.${effectiveRole},history.cs.[{"processed_by":"${sections.find(s => s.id === effectiveRole)?.name}"}]`);
           }
         } else if (currentRole === 'cfo' || isAdmin) {
           if (activeTab === 'tray') {
             query = query.eq('mark_to', effectiveRole);
-          } else if (activeTab === 'returned_files') {
-            if (viewingRole === 'cfo' || viewingRole === 'admin') {
-              query = query.not('additional_mark_to', 'is', null).neq('additional_mark_to', '');
-            } else {
-              query = query.eq('additional_mark_to', effectiveRole);
-            }
           }
         }
       } else if (activeTab === 'cfo_all_files') {
@@ -2088,25 +2187,17 @@ export default function FileTracking() {
         allQuery = allQuery.contains('history', '[{"action": "TRASHED"}]');
       }
 
-      if (activeTab === 'tray' || activeTab === 'timeline' || activeTab === 'returned_files') {
+      if (activeTab === 'tray' || activeTab === 'timeline') {
         const effectiveRole = effectiveViewingRole;
         if (!(currentRole === 'cfo' || isAdmin)) {
           if (activeTab === 'tray') {
             allQuery = allQuery.eq('mark_to', effectiveRole);
-          } else if (activeTab === 'returned_files') {
-            allQuery = allQuery.eq('additional_mark_to', currentRole);
           } else {
             allQuery = allQuery.or(`mark_to.eq.${effectiveRole},history.cs.[{"processed_by":"${sections.find(s => s.id === effectiveRole)?.name}"}]`);
           }
         } else if (currentRole === 'cfo' || isAdmin) {
           if (activeTab === 'tray') {
             allQuery = allQuery.eq('mark_to', effectiveRole);
-          } else if (activeTab === 'returned_files') {
-            if (viewingRole === 'cfo' || viewingRole === 'admin') {
-              allQuery = allQuery.not('additional_mark_to', 'is', null).neq('additional_mark_to', '');
-            } else {
-              allQuery = allQuery.eq('additional_mark_to', effectiveRole);
-            }
           }
         }
       } else if (activeTab === 'cfo_all_files') {
@@ -2213,13 +2304,21 @@ export default function FileTracking() {
           subCategory: d.sub_category,
         }));
         
-        // ── Save to IndexedDB for offline access ──
+        // ── Save to IndexedDB for offline access (merge, don't overwrite local-only fields) ──
         try {
-          await db.records.bulkPut(mappedData.map((r: any) => ({
-            ...r,
-            is_dirty: false,
-            deleted_locally: false
-          })));
+          for (const r of mappedData) {
+            const existing = await db.records.get(r.id);
+            if (existing && existing.is_dirty) {
+              // Don't overwrite locally-modified records — they haven't synced yet
+              continue;
+            }
+            await db.records.put({
+              ...(existing || {}),  // preserve any local-only fields
+              ...r,
+              is_dirty: false,
+              deleted_locally: false
+            });
+          }
         } catch (bulkErr) {
           console.error("bulkPut error:", bulkErr);
         }
@@ -3391,10 +3490,10 @@ export default function FileTracking() {
             )}
 
             <Select value={sortOrder} onValueChange={(v: "desc" | "asc") => setSortOrder(v)}>
-              <SelectTrigger className="w-[130px] h-10 text-xs bg-[#0f1115] border-white/5 text-white/70 hover:text-white transition-all rounded-xl shrink-0">
+              <SelectTrigger className="w-[130px] h-10 text-xs bg-white border-slate-300 text-slate-800 hover:border-[#1e3a8a] transition-all rounded-xl shrink-0 shadow-sm font-semibold">
                 <SelectValue placeholder="Sort By" />
               </SelectTrigger>
-              <SelectContent className="bg-[#0f1115] border-white/10 text-white/70">
+              <SelectContent className="bg-white border-slate-200 text-slate-800 shadow-xl">
                 <SelectItem value="desc">Newest First</SelectItem>
                 <SelectItem value="asc">Oldest First</SelectItem>
               </SelectContent>
@@ -3613,18 +3712,35 @@ export default function FileTracking() {
                             <TableCell className="font-semibold text-sm">
                               <div className="flex items-center gap-2">
                                 <span>{file.subject}</span>
-                                {(file.file_image || (file.history && file.history.length > 0 && [...file.history].reverse().find(h => h.file_image)?.file_image)) && (
-                                  <img
-                                    src={file.file_image || [...file.history].reverse().find(h => h.file_image)?.file_image}
-                                    alt="doc"
-                                    title="Document photo attached"
-                                    className="w-7 h-7 object-cover rounded border border-teal-500/40 cursor-pointer hover:scale-150 transition-transform"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      window.open(file.file_image || [...file.history].reverse().find(h => h.file_image)?.file_image, '_blank');
-                                    }}
-                                  />
-                                )}
+                                {(() => {
+                                  const docImages = extractRecordImages(file);
+                                  if (docImages.length === 0) return null;
+                                  return (
+                                    <div
+                                      className="relative group/doc inline-flex items-center cursor-pointer shrink-0"
+                                      title={`${docImages.length} document photo(s) attached (Click to view gallery)`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPreviewGallery({
+                                          images: docImages,
+                                          initialIndex: 0,
+                                          title: `${file.cfo_diary_number || file.receiving_number} - ${file.subject || "Document Photos"}`
+                                        });
+                                      }}
+                                    >
+                                      <img
+                                        src={docImages[0]}
+                                        alt="doc"
+                                        className="w-7 h-7 object-cover rounded border border-teal-500/50 group-hover/doc:border-teal-400 group-hover/doc:scale-125 transition-transform shadow-xs bg-black/20"
+                                      />
+                                      {docImages.length > 1 && (
+                                        <span className="absolute -top-1.5 -right-2 bg-teal-600 text-white font-black text-[9px] px-1 rounded-full border border-background shadow-xs">
+                                          +{docImages.length - 1}
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -4927,7 +5043,7 @@ export default function FileTracking() {
 
               {currentRole !== 'entry_operator' && (
                 <div className="space-y-2">
-                  <Label className="text-xs uppercase font-bold text-teal-600 dark:text-[#14b8a6]">File Owner / Handover Person {currentRole !== 'entry_operator' && <span className="text-red-500">*</span>}</Label>
+                  <Label className="text-xs uppercase font-bold text-teal-600 dark:text-[#14b8a6]">File Owner / Handover Person <span className="text-muted-foreground/50 text-[10px] normal-case">(Optional)</span></Label>
                   <Input
                     placeholder="Handover Person / Owner"
                     value={formData.handover_person_name || ""}
@@ -5521,153 +5637,198 @@ export default function FileTracking() {
                 />
               </div>
 
-              {/* ── Document Image Section ── */}
-              <div className="space-y-3 lg:col-span-3 border border-dashed border-border/40 rounded-xl p-4 bg-muted/10">
-                <Label className="text-xs uppercase font-bold text-muted-foreground flex items-center gap-2">
-                  <ImageIcon className="w-3 h-3" />
-                  Document Photo
-                  <span className="text-[9px] font-normal normal-case text-muted-foreground">(Optional — attach scanned copy)</span>
-                </Label>
+              {/* ── Document Image Section (Multiple Photos Support) ── */}
+              <div className="space-y-4 lg:col-span-3 border border-dashed border-border/50 rounded-xl p-4 bg-muted/10">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground flex items-center gap-2">
+                    <ImageIcon className="w-3.5 h-3.5 text-teal-500" />
+                    Document Photos / Scans
+                    <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                      (Optional — attach one or multiple scanned pages/receipts)
+                    </span>
+                  </Label>
+                  {fileImages.length > 0 && (
+                    <Badge variant="outline" className="text-xs font-bold text-teal-600 dark:text-teal-400 border-teal-500/30 bg-teal-500/10 w-fit">
+                      {fileImages.length} {fileImages.length === 1 ? 'Photo Attached' : 'Photos Attached'}
+                    </Badge>
+                  )}
+                </div>
 
-                {fileImage ? (
-                  <div className="relative w-full">
-                    <img
-                      src={fileImage}
-                      alt="Document"
-                      className="w-full max-h-48 object-contain rounded-lg border border-border/30 bg-black/20"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setFileImage("")}
-                      className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-md"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-3">
-                    {/* Desktop file input */}
-                    <label className="cursor-pointer">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            // Resize via canvas first
-                            const dataUrl = await new Promise<string>((resolve) => {
-                              const reader = new FileReader();
-                              reader.onload = (ev) => {
-                                const img = new Image();
-                                img.src = ev.target?.result as string;
-                                img.onload = () => {
-                                  const canvas = document.createElement('canvas');
-                                  const MAX = 1024;
-                                  let w = img.width, h = img.height;
-                                  if (w > h) { if (w > MAX) { h = h * MAX / w; w = MAX; } }
-                                  else { if (h > MAX) { w = w * MAX / h; h = MAX; } }
-                                  canvas.width = w; canvas.height = h;
-                                  canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
-                                  resolve(canvas.toDataURL('image/jpeg', 0.75));
-                                };
-                              };
-                              reader.readAsDataURL(file);
-                            });
-                            // Convert base64 to Blob and upload to Supabase Storage
-                            const base64Data = dataUrl.split(',')[1];
-                            const blob = await fetch(dataUrl).then(r => r.blob());
-                            const fileName = `doc_images/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-                            const { data: uploadData, error: uploadError } = await supabase.storage
-                              .from('file-tracking-images')
-                              .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false });
-                            if (uploadError) {
-                              console.warn('Storage upload failed, falling back to base64:', uploadError.message);
-                              setFileImage(dataUrl); // fallback
-                            } else {
-                              const { data: urlData } = supabase.storage
-                                .from('file-tracking-images')
-                                .getPublicUrl(fileName);
-                              setFileImage(urlData.publicUrl);
-                            }
-                          } catch (err) {
-                            console.warn('Image processing error:', err);
-                          }
-                          e.target.value = '';
-                        }}
-                      />
-                      <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/40 border border-border/50 hover:bg-muted/60 transition-colors text-xs font-bold text-muted-foreground">
-                        <Upload className="w-3.5 h-3.5" />
-                        Upload from PC
-                      </div>
-                    </label>
-
-                    {/* Mobile QR scan button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const sessionId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                        setMobileUploadSessionId(sessionId);
-                        setShowMobileUploadQR(true);
-                        setIsMobileListening(true);
-                        // Subscribe to Supabase Realtime broadcast
-                        const channel = supabase.channel(`mobile-upload-${sessionId}`);
-                        channel
-                          .on('broadcast', { event: 'image-uploaded' }, (payload) => {
-                            if (payload?.payload?.image) {
-                              setFileImage(payload.payload.image);
-                              setShowMobileUploadQR(false);
-                              setIsMobileListening(false);
-                              toast.success("Document photo received from mobile!");
-                              supabase.removeChannel(channel);
-                            }
-                          })
-                          .subscribe();
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-500/10 border border-teal-500/30 hover:bg-teal-500/20 transition-colors text-xs font-bold text-teal-500"
-                    >
-                      <ScanLine className="w-3.5 h-3.5" />
-                      Scan from Mobile
-                    </button>
-                  </div>
-                )}
-
-                {/* Mobile QR Modal */}
-                {showMobileUploadQR && mobileUploadSessionId && (
-                  <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
-                    <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm space-y-4 text-center">
-                      <h3 className="text-base font-black text-white">Scan with Mobile Camera</h3>
-                      <p className="text-xs text-zinc-400">Open camera app, scan the QR code, then take a photo of the document.</p>
-                      <div className="flex justify-center">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + '/mobile-upload/' + mobileUploadSessionId)}`}
-                          alt="QR Code"
-                          className="w-48 h-48 rounded-xl border-4 border-white"
-                        />
-                      </div>
-                      <p className="text-[10px] text-zinc-500 font-mono break-all">
-                        {window.location.origin}/mobile-upload/{mobileUploadSessionId}
-                      </p>
-                      {isMobileListening && (
-                        <div className="flex items-center justify-center gap-2 text-xs text-teal-400 font-bold">
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          Waiting for mobile upload...
+                {/* Multiple Images Preview Grid */}
+                {fileImages.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                      {fileImages.map((imgUrl, index) => (
+                        <div
+                          key={index}
+                          className="group relative rounded-xl border border-border/60 bg-black/20 dark:bg-black/40 overflow-hidden shadow-xs hover:border-teal-500/60 transition-all aspect-square flex items-center justify-center"
+                        >
+                          <img
+                            src={imgUrl}
+                            alt={`Document photo ${index + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform cursor-pointer"
+                            onClick={() => setPreviewGallery({ images: fileImages, initialIndex: index, title: formData.subject || "Document Photo" })}
+                          />
+                          {/* Photo number tag */}
+                          <span className="absolute top-1.5 left-1.5 bg-black/75 text-white text-[10px] font-black px-1.5 py-0.5 rounded backdrop-blur-xs">
+                            #{index + 1}
+                          </span>
+                          {/* Quick action buttons overlay */}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-2">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewGallery({ images: fileImages, initialIndex: index, title: formData.subject || "Document Photo" })}
+                              className="p-1.5 rounded-md bg-white/20 hover:bg-white/40 text-white transition-colors"
+                              title="View full size"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = fileImages.filter((_, i) => i !== index);
+                                setFileImages(updated);
+                                setFileImage(updated[0] || "");
+                                toast.info(`Photo #${index + 1} removed`);
+                              }}
+                              className="p-1.5 rounded-md bg-red-500/80 hover:bg-red-600 text-white transition-colors"
+                              title="Remove photo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMobileUploadQR(false);
-                          setIsMobileListening(false);
-                        }}
-                        className="w-full py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition-colors"
-                      >
-                        Cancel
-                      </button>
+                      ))}
                     </div>
                   </div>
                 )}
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Desktop file input */}
+                  <label className={`cursor-pointer ${isUploadingImages ? 'opacity-60 pointer-events-none' : ''}`}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={handleMultiImageUpload}
+                      disabled={isUploadingImages}
+                    />
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/40 border border-border/50 hover:bg-muted/60 transition-colors text-xs font-bold text-foreground">
+                      {isUploadingImages ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-500" />
+                          Uploading photos...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5 text-teal-500" />
+                          {fileImages.length > 0 ? "+ Upload More from PC" : "Upload from PC (Multiple Allowed)"}
+                        </>
+                      )}
+                    </div>
+                  </label>
+
+                  {/* Mobile QR scan button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sessionId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                      setMobileUploadSessionId(sessionId);
+                      setShowMobileUploadQR(true);
+                      setIsMobileListening(true);
+                      // Subscribe to Supabase Realtime broadcast
+                      const channel = supabase.channel(`mobile-upload-${sessionId}`);
+                      channel
+                        .on('broadcast', { event: 'image-uploaded' }, (payload) => {
+                          if (payload?.payload?.image) {
+                            const incoming: string[] = Array.isArray(payload.payload.image)
+                              ? payload.payload.image
+                              : [payload.payload.image];
+                            setFileImages(prev => {
+                              const updated = [...prev, ...incoming];
+                              setFileImage(updated[0] || "");
+                              return updated;
+                            });
+                            toast.success(`${incoming.length} photo(s) received from mobile!`);
+                          }
+                        })
+                        .subscribe();
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-500/10 border border-teal-500/30 hover:bg-teal-500/20 transition-colors text-xs font-bold text-teal-500"
+                  >
+                    <ScanLine className="w-3.5 h-3.5" />
+                    {fileImages.length > 0 ? "+ Scan More from Mobile" : "Scan from Mobile"}
+                  </button>
+
+                  {fileImages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm("Are you sure you want to remove all attached photos?")) {
+                          setFileImages([]);
+                          setFileImage("");
+                          toast.info("All document photos removed");
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-500 text-xs font-bold transition-colors sm:ml-auto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Remove All
+                    </button>
+                  )}
+                </div>
+
+                {/* Mobile QR Modal */}
+                {showMobileUploadQR && mobileUploadSessionId && (() => {
+                  const mobileBaseUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+                    ? `${window.location.protocol}//172.16.10.52:8080`
+                    : window.location.origin;
+                  const mobileUploadUrl = `${mobileBaseUrl}/mobile-upload/${mobileUploadSessionId}`;
+                  return (
+                    <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
+                      <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm space-y-4 text-center">
+                        <h3 className="text-base font-black text-white">Scan with Mobile Camera</h3>
+                        <p className="text-xs text-zinc-400">
+                          Scan the QR code with your mobile camera to upload <strong>multiple photos</strong> (page-by-page via camera or multiple from gallery).
+                        </p>
+                        <div className="flex justify-center">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mobileUploadUrl)}`}
+                            alt="QR Code"
+                            className="w-48 h-48 rounded-xl border-4 border-white shadow-xl"
+                          />
+                        </div>
+                        <p className="text-[10px] text-zinc-500 font-mono break-all">
+                          {mobileUploadUrl}
+                        </p>
+                        {fileImages.length > 0 && (
+                          <div className="p-2.5 rounded-lg bg-teal-500/15 border border-teal-500/40 text-teal-300 text-xs font-bold flex items-center justify-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+                            {fileImages.length} photo(s) received on desktop
+                          </div>
+                        )}
+                        {isMobileListening && (
+                          <div className="flex items-center justify-center gap-2 text-xs text-teal-400 font-bold">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            Live sync active — taking mobile photos...
+                          </div>
+                        )}
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            setShowMobileUploadQR(false);
+                            setIsMobileListening(false);
+                          }}
+                          className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors"
+                        >
+                          Done / Close
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             </CardContent>
@@ -6364,7 +6525,7 @@ export default function FileTracking() {
         <div ref={printRef} className="p-6 font-sans text-black bg-white min-h-[210mm] w-[148mm] mx-auto relative overflow-hidden">
           {/* Full-Page Official KWSC Watermark */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[35] overflow-hidden">
-            <img src="/kwsc-watermark-logo.png" alt="KWSC Watermark" className="w-[420px] h-[420px] object-contain opacity-[0.10] select-none filter contrast-125 print:opacity-[0.14]" />
+            <img src="/kwsc-watermark-logo.png" alt="KWSC Watermark" className="w-[420px] h-[420px] object-contain opacity-[0.06] select-none print:opacity-[0.08]" />
           </div>
           
           {/* DUPLICATE Watermark */}
@@ -6505,36 +6666,43 @@ export default function FileTracking() {
                   </div>
                 )}
 
-                {/* Full-Slip Official KWSC Watermark - Subtle, clean opacity so it doesn't pollute text or print */}
+                {/* Full-Slip Official KWSC Watermark - Subtle, light opacity so it doesn't pollute text or print */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[35] overflow-hidden">
                   <img
                     src="/kwsc-watermark-logo.png"
                     alt="KWSC Watermark"
-                    className="w-[340px] h-[340px] object-contain opacity-[0.20] select-none filter contrast-125 print:opacity-[0.25]"
+                    className="w-[340px] h-[340px] object-contain opacity-[0.06] select-none print:opacity-[0.08]"
                   />
                 </div>
 
-                {/* Header - Solid rich Navy Blue (#1e3a8a) in print, no dirty grey smudges */}
-                <div className="bg-[#1e3a8a] print:bg-[#1e3a8a] px-6 pt-7 pb-14 rounded-b-[36px] shadow-none relative overflow-hidden shrink-0 border-b-2 border-[#1e3a8a]">
-                  {/* Decorative circles - ONLY on screen, hidden on print so they don't cause dirty grey smudges! */}
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl print:hidden"></div>
-                  <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl print:hidden"></div>
+                {/* Header Banner - Sleek Navy Gradient with SAP Token & Underline */}
+                <div className="relative bg-gradient-to-br from-[#1e3a8a] via-[#1e40af] to-[#2563eb] print:bg-[#1e3a8a] text-white pt-6 pb-9 px-6 text-center overflow-hidden shrink-0">
+                  <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-xl" />
+                  <div className="absolute bottom-0 left-0 -mb-4 -ml-4 w-24 h-24 bg-white/10 rounded-full blur-xl" />
 
-                  <div className="relative flex justify-center items-center mb-3">
-                    <ShieldCheck className="w-10 h-10 text-emerald-400 print:text-emerald-400" />
-                  </div>
-
-                  <div className="relative text-center space-y-1">
-                    <h1 className="text-white print:text-white text-xl font-black tracking-tight uppercase" style={{ color: '#ffffff' }}>Verified Tracking</h1>
-                    <p className="text-blue-100 print:text-white text-[10px] font-bold uppercase tracking-widest" style={{ color: '#ffffff' }}>Karachi Water Corporation</p>
+                  <div className="relative text-center flex flex-col items-center">
+                    {/* Sharp square box: blue border, white background, black text and black underline */}
+                    <div 
+                      className="w-full max-w-[280px] bg-white print:bg-white border-2 border-[#1e3a8a] dark:border-sky-400 print:border-[#1e3a8a] p-3 rounded-none shadow-md"
+                      style={{ backgroundColor: '#ffffff' }}
+                    >
+                      <h1 className="text-slate-900 print:text-black text-sm font-black tracking-widest uppercase" style={{ color: '#0f172a' }}>
+                        SAP TOKEN
+                      </h1>
+                      {/* Clean black underline for manual pen entry */}
+                      <div className="w-full border-b-2 border-slate-900 print:border-black h-5 mt-1" style={{ borderColor: '#0f172a' }}></div>
+                    </div>
+                    <p className="text-blue-100/80 print:text-white text-[9px] font-bold uppercase tracking-widest pt-2" style={{ color: '#ffffff' }}>
+                      Karachi Water &amp; Sewerage Corporation
+                    </p>
                   </div>
                 </div>
 
                 {/* Main Content Card */}
-                <div className="px-5 -mt-8 relative z-10 shrink-0">
-                  <Card className="rounded-[28px] border border-slate-200 shadow-none overflow-hidden bg-white print:border-none print:shadow-none">
+                <div className="px-5 -mt-6 relative z-10 shrink-0">
+                  <Card className="rounded-[28px] border border-slate-200 shadow-lg overflow-hidden bg-white print:border-none print:shadow-none">
                     <div className="p-1 bg-[#1e3a8a] print:bg-[#1e3a8a]"></div>
-                    <CardContent className="pt-5 space-y-5 print:pt-4">
+                    <CardContent className="pt-5 space-y-4 print:pt-4">
 
                       {/* Tracking Numbers */}
                       <div className="grid grid-cols-2 gap-3">
@@ -6549,7 +6717,7 @@ export default function FileTracking() {
                       </div>
 
                       {/* File Info */}
-                      <div className="space-y-3.5 pt-3 border-t border-slate-100 dark:border-slate-800 print:border-slate-200">
+                      <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800 print:border-slate-200">
                         <div className="flex items-start gap-3">
                           <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-900/40 text-[#1e3a8a] dark:text-sky-300 flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-700 print:border-slate-200">
                             <FileText className="w-4 h-4 text-[#1e3a8a] dark:text-sky-300" />
@@ -6557,15 +6725,6 @@ export default function FileTracking() {
                           <div>
                             <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 uppercase tracking-wide">Subject</span>
                             <p className="text-xs font-black text-slate-900 dark:text-white print:text-black leading-snug">{qrFullScreen?.subject || ticket?.subject || "Subject Details"}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-100 dark:border-amber-700 print:border-slate-200">
-                            <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-300" />
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 uppercase tracking-wide">Created Date</span>
-                            <p className="text-xs font-black text-amber-700 dark:text-amber-300 print:text-amber-800 font-mono tracking-tight">{safeFormatDate(qrFullScreen?.created_date)}</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
@@ -6643,7 +6802,12 @@ export default function FileTracking() {
                         </div>
                       </div>
 
-                      <div className="pt-2 flex flex-col gap-2 justify-center">
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Print controls — no-print */}
+                <div className="px-4 pb-4 pt-2 flex flex-col gap-2 justify-center no-print">
                         <div className="no-print space-y-2 mb-2 bg-slate-500/5 p-3 rounded-lg border border-slate-500/20">
                           <div className="flex items-center gap-2 mb-3 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20">
                             <Checkbox 
@@ -6680,9 +6844,6 @@ export default function FileTracking() {
                           <Printer className="w-4 h-4 mr-2" style={{ color: '#ffffff' }} />
                           <span style={{ color: '#ffffff' }}>Print Tracking Slip</span>
                         </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
                 </div>
 
                 {/* Minimal Thermal Printer Content - Hidden in standard print */}
@@ -7101,6 +7262,123 @@ export default function FileTracking() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ── Document Photos Lightbox / Gallery Modal ── */}
+      <Dialog open={!!previewGallery} onOpenChange={(open) => !open && setPreviewGallery(null)}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-white/10 text-white p-0 overflow-hidden sm:rounded-2xl">
+          {previewGallery && previewGallery.images.length > 0 && (
+            <div className="flex flex-col h-[85vh] max-h-[750px]">
+              {/* Header */}
+              <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-black/40 backdrop-blur-md">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ImageIcon className="w-4 h-4 text-teal-400 shrink-0" />
+                  <span className="text-sm font-bold truncate max-w-xs sm:max-w-md">{previewGallery.title}</span>
+                  <Badge variant="outline" className="text-[10px] text-teal-400 border-teal-500/30 bg-teal-500/10 shrink-0">
+                    {previewGallery.initialIndex + 1} of {previewGallery.images.length}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-xs text-white/80 hover:text-white hover:bg-white/10"
+                    onClick={() => window.open(previewGallery.images[previewGallery.initialIndex], '_blank')}
+                    title="Open original in new tab"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 mr-1 text-teal-400" /> New Tab
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-xs text-white/80 hover:text-white hover:bg-white/10"
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = previewGallery.images[previewGallery.initialIndex];
+                      link.download = `doc-photo-${previewGallery.initialIndex + 1}.jpg`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                    title="Download photo"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1 text-teal-400" /> Download
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-white/60 hover:text-white hover:bg-white/10"
+                    onClick={() => setPreviewGallery(null)}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Main Image Area with Prev / Next */}
+              <div className="relative flex-1 bg-black/60 flex items-center justify-center p-4 overflow-hidden">
+                <img
+                  src={previewGallery.images[previewGallery.initialIndex]}
+                  alt={`Document page ${previewGallery.initialIndex + 1}`}
+                  className="max-h-full max-w-full object-contain rounded-lg select-none shadow-2xl transition-all"
+                />
+
+                {/* Prev Button */}
+                {previewGallery.images.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewGallery(prev => prev ? ({
+                      ...prev,
+                      initialIndex: (prev.initialIndex - 1 + prev.images.length) % prev.images.length
+                    }) : null)}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white border border-white/10 backdrop-blur-xs transition-all shadow-lg"
+                    title="Previous photo"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                )}
+
+                {/* Next Button */}
+                {previewGallery.images.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewGallery(prev => prev ? ({
+                      ...prev,
+                      initialIndex: (prev.initialIndex + 1) % prev.images.length
+                    }) : null)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white border border-white/10 backdrop-blur-xs transition-all shadow-lg"
+                    title="Next photo"
+                  >
+                    <ChevronRight className="w-6 h-6" />
+                  </button>
+                )}
+              </div>
+
+              {/* Thumbnails strip at bottom if more than 1 image */}
+              {previewGallery.images.length > 1 && (
+                <div className="p-3 border-t border-white/10 bg-black/40 flex items-center justify-center gap-2 overflow-x-auto">
+                  {previewGallery.images.map((img, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setPreviewGallery(prev => prev ? ({ ...prev, initialIndex: idx }) : null)}
+                      className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
+                        idx === previewGallery.initialIndex
+                          ? "border-teal-400 scale-105 shadow-md shadow-teal-500/20"
+                          : "border-white/20 opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-0 right-0 bg-black/80 text-[8px] font-black px-1 text-white">
+                        #{idx + 1}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <DailyCategoryReportModal
         isOpen={isDailyCategoryReportOpen}
         onClose={() => setIsDailyCategoryReportOpen(false)}

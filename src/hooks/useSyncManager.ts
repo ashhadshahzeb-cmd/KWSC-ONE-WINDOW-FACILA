@@ -69,7 +69,7 @@ export function useSyncManager() {
         }
 
         if (task.action === 'insert') {
-          const { id: _id, is_dirty, deleted_locally, additional_mark_to, department_number, fuel_station, file_image, ...payload } = payloadToUpload;
+          const { id: _id, is_dirty, deleted_locally, additional_mark_to, department_number, fuel_station, file_image, file_images, ...payload } = payloadToUpload;
           
           if (payload.amount === "") payload.amount = null;
 
@@ -78,11 +78,11 @@ export function useSyncManager() {
             .insert(payload);
           if (error) throw error;
 
-          // 📊 Direct Browser -> Google Sheets Sync (non-blocking, zero server needed)
-          syncToGoogleSheetDirectly(payload).catch(() => {});
+          // 📊 Direct Browser -> Google Sheets Sync (all 30 fields, non-blocking)
+          syncToGoogleSheetDirectly(payloadToUpload).catch(() => {});
 
         } else if (task.action === 'update') {
-          const { id: _id, is_dirty, deleted_locally, additional_mark_to, department_number, fuel_station, file_image, ...payload } = payloadToUpload;
+          const { id: _id, is_dirty, deleted_locally, additional_mark_to, department_number, fuel_station, file_image, file_images, ...payload } = payloadToUpload;
           
           if (payload.amount === "") payload.amount = null;
 
@@ -91,6 +91,9 @@ export function useSyncManager() {
             .update(payload)
             .eq('receiving_number', task.record_id!);
           if (error) throw error;
+
+          // 📊 Direct Browser -> Google Sheets Sync (all 30 fields, non-blocking)
+          syncToGoogleSheetDirectly(payloadToUpload).catch(() => {});
 
         } else if (task.action === 'delete') {
           const { error } = await supabase

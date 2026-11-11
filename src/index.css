@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,800&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -55,9 +55,32 @@
     --chart-4: 220 75% 55%;
     --chart-5: 190 80% 40%;
 
-    --font-heading: 'Plus Jakarta Sans', 'Outfit', sans-serif;
-    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  /* ════════════════════════════════════════
+     APP THEMES (Navy / Emerald / Violet / Dark)
+  ════════════════════════════════════════ */
+  .theme-navy {
+    --primary: 224 64% 33%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 224 64% 33%;
+  }
+
+  .theme-emerald {
+    --primary: 160 84% 30%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 160 84% 30%;
+    --accent: 160 84% 30%;
+  }
+
+  .theme-violet {
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 262 83% 58%;
+    --accent: 262 83% 58%;
   }
 
   .dark {
@@ -168,13 +191,23 @@ html:not(.dark):not(.landing-dark) {
     box-shadow: none !important;
   }
 
-  /* Flatten gradient text into solid brand #1e3a8a */
+  /* Flatten gradient text into theme brand color */
   .bg-clip-text {
     background-image: none !important;
     -webkit-background-clip: unset !important;
     background-clip: unset !important;
     -webkit-text-fill-color: #1e3a8a !important;
     color: #1e3a8a !important;
+  }
+
+  html.theme-emerald:not(.dark):not(.landing-dark) .bg-clip-text {
+    -webkit-text-fill-color: #059669 !important;
+    color: #059669 !important;
+  }
+
+  html.theme-violet:not(.dark):not(.landing-dark) .bg-clip-text {
+    -webkit-text-fill-color: #7c3aed !important;
+    color: #7c3aed !important;
   }
 
   /* ─── 2. Surfaces & Backgrounds (Pure White & Clean Flat Tones) ─── */

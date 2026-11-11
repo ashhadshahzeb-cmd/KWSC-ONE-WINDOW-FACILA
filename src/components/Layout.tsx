@@ -32,6 +32,8 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/components/ThemeProvider";
+import ThemeSwitcher from "@/components/ThemeSwitcher";
+import { AIVoiceAssistant } from "@/components/AIVoiceAssistant";
 import NotificationListener from "@/components/NotificationListener";
 import SpyListener from "@/components/SpyListener";
 import OfflineIndicator from "@/components/OfflineIndicator";
@@ -50,7 +52,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const [openCategory, setOpenCategory] = useState<string | null>("book-section");
   const location = useLocation();
   const { signOut, userRole, isAdmin, userName, isTransferUser } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, currentTheme } = useTheme();
   const mainRef = useRef<HTMLDivElement>(null);
 
   const isCFORole = userRole === 'cfo' || userRole === 'admin' || userRole === 'sub_cfo' || userRole?.startsWith('sub_cfo_') || isAdmin;
@@ -164,7 +166,10 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <motion.aside 
         initial={false}
         animate={{ width: collapsed ? 80 : 280 }}
-        className="hidden md:flex flex-col bg-[#1e3a8a] text-white border-r border-blue-900 shadow-md relative z-30 transition-all duration-300"
+        className={cn(
+          "hidden md:flex flex-col text-white shadow-md relative z-30 transition-all duration-300 border-r",
+          currentTheme.sidebarClass
+        )}
       >
         <div className="p-6 flex items-center justify-between border-b border-blue-800">
           {!collapsed && (
@@ -196,13 +201,20 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 const active = isItemActive(item.to);
                 return (
                   <motion.div key={item.to} whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }}>
-                    <Link to={item.to} className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group relative overflow-hidden font-bold text-sm",
-                      active 
-                        ? "sidebar-active-link bg-white text-[#1e3a8a] shadow-md" 
-                        : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
-                    )}>
-                      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", active ? "text-[#1e3a8a]" : "text-white")} />
+                    <Link 
+                      to={item.to} 
+                      style={active ? { color: currentTheme.primaryHex } : undefined}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group relative overflow-hidden font-bold text-sm",
+                        active 
+                          ? "sidebar-active-link bg-white shadow-md" 
+                          : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
+                      )}
+                    >
+                      <item.icon 
+                        style={{ color: active ? currentTheme.primaryHex : '#ffffff' }}
+                        className="w-5 h-5 shrink-0 transition-colors" 
+                      />
                       {!collapsed && <span>{item.label}</span>}
                     </Link>
                   </motion.div>
@@ -240,13 +252,20 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                         const active = isItemActive(item.to);
                         return (
                           <motion.div key={item.to} whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }}>
-                            <Link to={item.to} className={cn(
-                              "flex items-center gap-3 px-3 py-2 rounded-xl transition-all group relative overflow-hidden font-bold text-sm",
-                              active 
-                                ? "sidebar-active-link bg-white text-[#1e3a8a] shadow-md" 
-                                : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
-                            )}>
-                              <item.icon className={cn("w-4 h-4 shrink-0 transition-colors", active ? "text-[#1e3a8a]" : "text-white")} />
+                            <Link 
+                              to={item.to} 
+                              style={active ? { color: currentTheme.primaryHex } : undefined}
+                              className={cn(
+                                "flex items-center gap-3 px-3 py-2 rounded-xl transition-all group relative overflow-hidden font-bold text-sm",
+                                active 
+                                  ? "sidebar-active-link bg-white shadow-md" 
+                                  : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
+                              )}
+                            >
+                              <item.icon 
+                                style={{ color: active ? currentTheme.primaryHex : '#ffffff' }}
+                                className="w-4 h-4 shrink-0 transition-colors" 
+                              />
                               {!collapsed && <span>{item.label}</span>}
                             </Link>
                           </motion.div>
@@ -267,16 +286,15 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               {!collapsed && <span>Profile Settings</span>}
             </Link>
           </motion.div>
+          {!collapsed && (
+            <motion.div whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }}>
+              <ThemeSwitcher variant="sidebar" />
+            </motion.div>
+          )}
           <motion.div whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }}>
             <button onClick={() => signOut()} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-red-100 hover:bg-red-500/25 hover:text-white transition-all font-bold text-sm">
               <LogOut className="w-5 h-5 shrink-0 text-red-200" />
               {!collapsed && <span>Logout</span>}
-            </button>
-          </motion.div>
-          <motion.div whileHover={{ x: 3 }} whileTap={{ scale: 0.98 }}>
-            <button onClick={toggleTheme} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-white hover:bg-white/15 transition-all font-bold text-sm">
-              {theme === 'dark' ? <Sun className="w-5 h-5 shrink-0 text-amber-300" /> : <Moon className="w-5 h-5 shrink-0 text-white" />}
-              {!collapsed && <span>{theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}</span>}
             </button>
           </motion.div>
         </div>
@@ -293,7 +311,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                     <Menu className="w-5 h-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="p-0 w-72 flex flex-col bg-[#1e3a8a] text-white border-r border-blue-900">
+                <SheetContent side="left" className={cn("p-0 w-72 flex flex-col text-white border-r", currentTheme.sidebarClass)}>
                   <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
                   <div className="p-6 flex items-center gap-3 border-b border-blue-800">
                     <img src="/kwsc-logo.png" alt="KWSC" className="w-10 h-10 object-contain drop-shadow" />
@@ -306,13 +324,21 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                         {topNavItems.map((item) => {
                           const active = isItemActive(item.to);
                           return (
-                            <Link key={item.to} to={item.to} className={cn(
-                              "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group relative font-bold text-sm",
-                              active 
-                                ? "sidebar-active-link bg-white text-[#1e3a8a] shadow-md" 
-                                : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
-                            )}>
-                              <item.icon className={cn("w-5 h-5 shrink-0", active ? "text-[#1e3a8a]" : "text-white")} />
+                            <Link 
+                              key={item.to} 
+                              to={item.to} 
+                              style={active ? { color: currentTheme.primaryHex } : undefined}
+                              className={cn(
+                                "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group relative font-bold text-sm",
+                                active 
+                                  ? "sidebar-active-link bg-white shadow-md" 
+                                  : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
+                              )}
+                            >
+                              <item.icon 
+                                style={{ color: active ? currentTheme.primaryHex : '#ffffff' }}
+                                className="w-5 h-5 shrink-0" 
+                              />
                               <span>{item.label}</span>
                             </Link>
                           );
@@ -336,13 +362,21 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                             {category.items.map((item) => {
                               const active = isItemActive(item.to);
                               return (
-                                <Link key={item.to} to={item.to} className={cn(
-                                  "flex items-center gap-3 px-3 py-2 rounded-xl transition-all group relative font-bold text-sm",
-                                  active 
-                                    ? "sidebar-active-link bg-white text-[#1e3a8a] shadow-md" 
-                                    : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
-                                )}>
-                                  <item.icon className={cn("w-4 h-4 shrink-0", active ? "text-[#1e3a8a]" : "text-white")} />
+                                <Link 
+                                  key={item.to} 
+                                  to={item.to} 
+                                  style={active ? { color: currentTheme.primaryHex } : undefined}
+                                  className={cn(
+                                    "flex items-center gap-3 px-3 py-2 rounded-xl transition-all group relative font-bold text-sm",
+                                    active 
+                                      ? "sidebar-active-link bg-white shadow-md" 
+                                      : "sidebar-inactive-link text-white hover:text-white hover:bg-white/15"
+                                  )}
+                                >
+                                  <item.icon 
+                                    style={{ color: active ? currentTheme.primaryHex : '#ffffff' }}
+                                    className="w-4 h-4 shrink-0" 
+                                  />
                                   <span>{item.label}</span>
                                 </Link>
                               );
@@ -354,10 +388,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                   </ScrollArea>
 
                   <div className="p-4 border-t border-blue-800 space-y-2">
-                    <button onClick={toggleTheme} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-white hover:bg-white/15 transition-all font-bold text-sm">
-                      {theme === 'dark' ? <Sun className="w-5 h-5 shrink-0 text-amber-300" /> : <Moon className="w-5 h-5 shrink-0 text-white" />}
-                      <span>{theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}</span>
-                    </button>
+                    <ThemeSwitcher variant="sidebar" />
                     <Link to="/profile" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-white hover:bg-white/15 transition-all font-bold text-sm">
                       <Settings2 className="w-5 h-5 shrink-0 text-white" />
                       <span>Profile Settings</span>
@@ -373,13 +404,24 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             
             <div className="flex flex-col">
               <h2 className="text-xs font-semibold text-slate-500">Welcome back,</h2>
-              <p className="text-sm md:text-base font-black text-[#1e3a8a] uppercase tracking-wide">
+              <p 
+                className="text-sm md:text-base font-black uppercase tracking-wide"
+                style={{ color: currentTheme.primaryHex }}
+              >
                 {userName || sections.find(s => s.id === userRole)?.name || userRole}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 md:gap-4">
-            <div className="px-3 md:px-4 py-1 md:py-1.5 rounded-full bg-blue-50 border border-blue-200 text-[#1e3a8a] text-[10px] md:text-xs font-bold uppercase tracking-wide shadow-xs">
+          <div className="flex items-center gap-2 md:gap-3">
+            <ThemeSwitcher variant="header" />
+            <div 
+              className="px-3 md:px-4 py-1 md:py-1.5 rounded-full border text-[10px] md:text-xs font-bold uppercase tracking-wide shadow-xs"
+              style={{ 
+                backgroundColor: currentTheme.isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(30, 58, 138, 0.06)',
+                borderColor: currentTheme.isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(30, 58, 138, 0.2)',
+                color: currentTheme.primaryHex
+              }}
+            >
               {userRole === 'admin' ? 'System Administrator' : 'Active Department'}
             </div>
             <NotificationDropdown />
@@ -469,6 +511,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </button>
         </nav>
       </div>
+
+      {/* Global 24/7 AI Voice Assistant */}
+      <AIVoiceAssistant />
     </div>
   );
 };
